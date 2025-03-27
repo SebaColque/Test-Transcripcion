@@ -10,6 +10,9 @@ function VoiceRecognition() {
   const [gainNode, setGainNode] = useState(null);
   const recognitionRef = useRef(null);
 
+  // Detección simple de dispositivo móvil
+  const isMobile = /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
+
   useEffect(() => {
     // Crear AudioContext y nodo de ganancia
     const context = new (window.AudioContext || window.webkitAudioContext)();
@@ -32,7 +35,8 @@ function VoiceRecognition() {
     }
 
     const recognition = new window.webkitSpeechRecognition();
-    recognition.continuous = true;
+    // En móviles se desactiva el modo continuo para forzar la finalización de cada frase
+    recognition.continuous = !isMobile;
     recognition.interimResults = true;
     recognition.lang = "es-ES";
     recognition.maxAlternatives = 1;
@@ -59,8 +63,8 @@ function VoiceRecognition() {
 
     recognition.onerror = (event) => {
       console.error("Error en el reconocimiento de voz:", event.error);
-      // Si ocurre el error "no-speech", reiniciamos el reconocimiento automáticamente.
       if (event.error === "no-speech") {
+        // Reiniciar después de un breve delay si no se detecta voz
         setTimeout(() => {
           if (isListening) {
             recognition.start();
@@ -70,7 +74,7 @@ function VoiceRecognition() {
     };
 
     recognition.onend = () => {
-      // Si se debe seguir escuchando, reiniciar el reconocimiento.
+      // En móviles, se detiene al final de cada frase, por lo que reiniciamos si aún se quiere escuchar
       if (isListening) {
         recognition.start();
       }
@@ -80,17 +84,17 @@ function VoiceRecognition() {
     recognitionRef.current = recognition;
 
     // Solicitar acceso al micrófono con mejoras para ambientes ruidosos
-    navigator.mediaDevices.getUserMedia({ 
-      audio: { 
-        echoCancellation: true, 
-        noiseSuppression: true, 
-        autoGainControl: true 
-      }
+    navigator.mediaDevices.getUserMedia({
+      audio: {
+        echoCancellation: true,
+        noiseSuppression: true,
+        autoGainControl: true,
+      },
     })
       .then((stream) => {
         const microphoneStream = audioContext.createMediaStreamSource(stream);
         microphoneStream.connect(gainNode);
-        // No conectar a audioContext.destination para evitar retroalimentación.
+        // No conectamos a audioContext.destination para evitar retroalimentación.
       })
       .catch((err) => {
         console.error("Error al acceder al micrófono:", err);
@@ -119,10 +123,18 @@ function VoiceRecognition() {
         <h1>Transcripción en Tiempo Real</h1>
       </header>
       <div className="controls">
-        <button onClick={startRecognition} disabled={isListening} className="btn start">
+        <button
+          onClick={startRecognition}
+          disabled={isListening}
+          className="btn start"
+        >
           {isListening ? "Escuchando..." : "Iniciar"}
         </button>
-        <button onClick={stopRecognition} disabled={!isListening} className="btn stop">
+        <button
+          onClick={stopRecognition}
+          disabled={!isListening}
+          className="btn stop"
+        >
           Detener
         </button>
         <button onClick={clearTranscription} className="btn clear">
@@ -131,14 +143,14 @@ function VoiceRecognition() {
       </div>
       <div className="volume-control">
         <label htmlFor="volume">Volumen del Micrófono:</label>
-        <input 
+        <input
           id="volume"
-          type="range" 
-          min="0.5" 
-          max="3.0" 
-          step="0.1" 
-          value={gainValue} 
-          onChange={handleVolumeChange} 
+          type="range"
+          min="0.5"
+          max="3.0"
+          step="0.1"
+          value={gainValue}
+          onChange={handleVolumeChange}
         />
         <span>{gainValue}</span>
       </div>
