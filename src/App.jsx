@@ -1,45 +1,49 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import "./App.css";
 
 function App() {
   const [transcription, setTranscription] = useState("");
   const [isListening, setIsListening] = useState(false);
+  const [audioContext, setAudioContext] = useState(null);
+  const [gainNode, setGainNode] = useState(null);
+  const [gainValue, setGainValue] = useState(1.5); // Valor inicial de amplificación
+
+  useEffect(() => {
+    // Crear el contexto de audio cuando se monta el componente
+    const context = new (window.AudioContext || window.webkitAudioContext)();
+    setAudioContext(context);
+
+    // Crear un nodo de ganancia para controlar el volumen
+    const gain = context.createGain();
+    gain.gain.value = gainValue; // Ajustamos el valor de amplificación
+    setGainNode(gain);
+  }, []);
+
+  useEffect(() => {
+    if (gainNode) {
+      gainNode.gain.value = gainValue; // Actualizamos el valor de amplificación dinámicamente
+    }
+  }, [gainValue, gainNode]);
 
   const startRecognition = () => {
-    // Verificar si el navegador soporta la Web Speech API
     if (!("webkitSpeechRecognition" in window)) {
       alert("Tu navegador no soporta la API de Reconocimiento de Voz.");
       return;
     }
 
     const recognition = new window.webkitSpeechRecognition();
-    recognition.continuous = true; // Escuchar de forma continua
-    recognition.interimResults = true; // Mostrar resultados intermedios
-
+    recognition.continuous = true;
+    recognition.interimResults = true;
     recognition.onstart = () => {
       setIsListening(true);
     };
 
     recognition.onresult = (event) => {
       let transcript = "";
-      // Recoger solo el último resultado completo
       for (let i = event.resultIndex; i < event.results.length; i++) {
         transcript += event.results[i][0].transcript;
       }
-
-      // Solo actualizar la transcripción si el resultado es final
-      if (event.results[event.results.length - 1].isFinal) {
-        // Lógica para agregar puntuación
-        const punctuatedTranscript = addPunctuation(transcript);
-
-        setTranscription((prevTranscription) => {
-          // Verificar si la transcripción final es diferente a la anterior
-          if (prevTranscription !== punctuatedTranscript) {
-            return prevTranscription + " " + punctuatedTranscript; // Acumular solo si es nuevo
-          }
-          return prevTranscription; // No agregar si ya es igual
-        });
-      }
+      setTranscription(transcript);
     };
 
     recognition.onerror = (event) => {
@@ -47,16 +51,32 @@ function App() {
     };
 
     recognition.onend = () => {
-      // Si el reconocimiento termina inesperadamente, reiniciamos el proceso
       if (isListening) {
         console.log("Reconocimiento terminado. Reiniciando...");
-        recognition.start(); // Reinicia la escucha para que continúe
+        recognition.start();
       } else {
-        setIsListening(false); // Dejar de escuchar cuando el usuario lo detiene
+        setIsListening(false);
       }
     };
 
-    recognition.start(); // Inicia el reconocimiento
+    // Empezar el proceso de reconocimiento de voz
+    recognition.start();
+
+    // Obtener el micrófono y pasar la señal de audio al contexto de audio
+    navigator.mediaDevices.getUserMedia({ audio: true })
+      .then((stream) => {
+        // Crear un flujo de entrada de audio
+        const microphoneStream = audioContext.createMediaStreamSource(stream);
+
+        // Conectar la entrada del micrófono al nodo de ganancia
+        microphoneStream.connect(gainNode);
+
+        // Conectar el nodo de ganancia a la salida de audio (los altavoces)
+        gainNode.connect(audioContext.destination);
+      })
+      .catch((err) => {
+        console.error("Error al acceder al micrófono:", err);
+      });
   };
 
   const stopRecognition = () => {
@@ -64,26 +84,9 @@ function App() {
     setTranscription("Reconocimiento detenido.");
   };
 
-  // Función para agregar puntuación de forma simple
-  const addPunctuation = (text) => {
-    let punctuatedText = text;
-
-    // Regla para detectar preguntas y agregar signos de pregunta
-    if (punctuatedText.toLowerCase().includes("¿") || punctuatedText.toLowerCase().includes("qué")) {
-      punctuatedText += "?";
-    }
-
-    // Regla para detectar exclamaciones y agregar signos de exclamación
-    if (punctuatedText.toLowerCase().includes("¡")) {
-      punctuatedText += "!";
-    }
-
-    // Añadir punto si no hay puntuación final
-    if (!punctuatedText.endsWith("?") && !punctuatedText.endsWith("!") && !punctuatedText.endsWith(".")) {
-      punctuatedText += ".";
-    }
-
-    return punctuatedText;
+  const handleVolumeChange = (event) => {
+    const value = event.target.value;
+    setGainValue(value); // Cambiar el valor de amplificación
   };
 
   return (
@@ -103,6 +106,22 @@ function App() {
       >
         Detener Reconocimiento
       </button>
+
+      {/* Control deslizante para ajustar la amplificación */}
+      <div className="volume-control">
+        <label>Volumen de Micrófono: </label>
+        <input
+          type="range"
+          min="0.5"
+          max="30.0"
+          step="0.1"
+          value={gainValue}
+          onChange={handleVolumeChange}
+          className="volume-slider"
+        />
+        <span>{gainValue}</span>
+      </div>
+
       <div className="output">
         <p>{transcription || "Lo que digas aparecerá aquí..."}</p>
       </div>
