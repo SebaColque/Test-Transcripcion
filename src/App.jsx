@@ -2,7 +2,7 @@ import React, { useState, useEffect } from "react";
 import "./App.css";
 
 function App() {
-  const [transcription, setTranscription] = useState("");
+  const [transcription, setTranscription] = useState(""); // Transcripción acumulada
   const [isListening, setIsListening] = useState(false);
   const [audioContext, setAudioContext] = useState(null);
   const [gainNode, setGainNode] = useState(null);
@@ -32,18 +32,26 @@ function App() {
     }
 
     const recognition = new window.webkitSpeechRecognition();
-    recognition.continuous = true;
-    recognition.interimResults = true;
+    recognition.continuous = true; // Continuar reconociendo
+    recognition.interimResults = true; // Mostrar resultados intermedios
+    recognition.lang = "es-ES"; // Configura el idioma (español de España en este caso)
+    recognition.maxAlternatives = 1; // Solo tomar la primera alternativa
+
     recognition.onstart = () => {
       setIsListening(true);
     };
 
     recognition.onresult = (event) => {
-      let transcript = "";
+      let newTranscript = "";
       for (let i = event.resultIndex; i < event.results.length; i++) {
-        transcript += event.results[i][0].transcript;
+        if (event.results[i].isFinal) {
+          newTranscript += event.results[i][0].transcript;
+        }
       }
-      setTranscription(transcript);
+
+      if (newTranscript && !transcription.includes(newTranscript)) {
+        setTranscription((prevTranscription) => prevTranscription + " " + newTranscript);
+      }
     };
 
     recognition.onerror = (event) => {
@@ -53,25 +61,20 @@ function App() {
     recognition.onend = () => {
       if (isListening) {
         console.log("Reconocimiento terminado. Reiniciando...");
-        recognition.start();
+        recognition.start(); // Reiniciar reconocimiento en caso de que se termine inesperadamente
       } else {
         setIsListening(false);
       }
     };
 
-    // Empezar el proceso de reconocimiento de voz
+    // Ajuste del tiempo de inactividad y timeout
     recognition.start();
 
     // Obtener el micrófono y pasar la señal de audio al contexto de audio
     navigator.mediaDevices.getUserMedia({ audio: true })
       .then((stream) => {
-        // Crear un flujo de entrada de audio
         const microphoneStream = audioContext.createMediaStreamSource(stream);
-
-        // Conectar la entrada del micrófono al nodo de ganancia
         microphoneStream.connect(gainNode);
-
-        // Conectar el nodo de ganancia a la salida de audio (los altavoces)
         gainNode.connect(audioContext.destination);
       })
       .catch((err) => {
@@ -87,6 +90,10 @@ function App() {
   const handleVolumeChange = (event) => {
     const value = event.target.value;
     setGainValue(value); // Cambiar el valor de amplificación
+  };
+
+  const clearTranscription = () => {
+    setTranscription(""); // Limpiar la transcripción
   };
 
   return (
@@ -113,13 +120,18 @@ function App() {
         <input
           type="range"
           min="0.5"
-          max="30.0"
+          max="3.0"
           step="0.1"
           value={gainValue}
           onChange={handleVolumeChange}
           className="volume-slider"
         />
         <span>{gainValue}</span>
+      </div>
+
+      {/* Botón para borrar la transcripción */}
+      <div className="clear-btn">
+        <button onClick={clearTranscription}>Borrar Transcripción</button>
       </div>
 
       <div className="output">
