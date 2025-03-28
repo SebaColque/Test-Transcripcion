@@ -65,7 +65,7 @@ function VoiceRecognition() {
     }
 
     const recognition = new window.webkitSpeechRecognition();
-    recognition.continuous = !isMobile;
+    recognition.continuous = true;
     recognition.interimResults = true;
     recognition.lang = "es-ES";
     recognition.maxAlternatives = 1;
