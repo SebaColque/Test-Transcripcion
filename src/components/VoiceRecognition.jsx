@@ -1,20 +1,23 @@
+// VoiceRecognition.jsx
 import React, { useState, useEffect, useRef } from "react";
+import ReactMarkdown from 'react-markdown';
 import "./VoiceRecognition.css";
+import MermaidDiagram from "./MermaidDiagram";
 
 function VoiceRecognition() {
   const [finalTranscript, setFinalTranscript] = useState("");
   const [interimTranscript, setInterimTranscript] = useState("");
+  const [refinedTranscript, setRefinedTranscript] = useState("");
   const [isListening, setIsListening] = useState(false);
   const [gainValue, setGainValue] = useState(1.5);
   const [audioContext, setAudioContext] = useState(null);
   const [gainNode, setGainNode] = useState(null);
+  const [diagram, setDiagram] = useState("");
   const recognitionRef = useRef(null);
 
-  // Detección simple de dispositivo móvil
   const isMobile = /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
 
   useEffect(() => {
-    // Crear AudioContext y nodo de ganancia
     const context = new (window.AudioContext || window.webkitAudioContext)();
     setAudioContext(context);
     const gain = context.createGain();
@@ -28,6 +31,33 @@ function VoiceRecognition() {
     }
   }, [gainValue, gainNode]);
 
+  // Función para refinar la transcripción
+  const refineTranscript = async (text) => {
+    try {
+      const res = await fetch("http://localhost:5000/api/refine-transcript", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ transcript: text }),
+      });
+      const data = await res.json();
+      setRefinedTranscript(data.refinedText);
+    } catch (error) {
+      console.error("Error refinando transcripción:", error);
+    }
+  };
+
+  // Uso de debounce: si finalTranscript cambia, espera 5 segundos de inactividad para refinar
+  useEffect(() => {
+    const timeout = setTimeout(() => {
+      if (finalTranscript.trim().length > 0) {
+        refineTranscript(finalTranscript);
+      }
+    }, 5000);
+    return () => clearTimeout(timeout);
+  }, [finalTranscript]);
+
   const startRecognition = () => {
     if (!("webkitSpeechRecognition" in window)) {
       alert("Tu navegador no soporta la API de Reconocimiento de Voz.");
@@ -35,7 +65,6 @@ function VoiceRecognition() {
     }
 
     const recognition = new window.webkitSpeechRecognition();
-    // En móviles se desactiva el modo continuo para forzar la finalización de cada frase
     recognition.continuous = !isMobile;
     recognition.interimResults = true;
     recognition.lang = "es-ES";
@@ -43,6 +72,10 @@ function VoiceRecognition() {
 
     recognition.onstart = () => {
       setIsListening(true);
+      setFinalTranscript("");
+      setInterimTranscript("");
+      setRefinedTranscript("");
+      setDiagram("");
     };
 
     recognition.onresult = (event) => {
@@ -64,7 +97,6 @@ function VoiceRecognition() {
     recognition.onerror = (event) => {
       console.error("Error en el reconocimiento de voz:", event.error);
       if (event.error === "no-speech") {
-        // Reiniciar después de un breve delay si no se detecta voz
         setTimeout(() => {
           if (isListening) {
             recognition.start();
@@ -74,7 +106,6 @@ function VoiceRecognition() {
     };
 
     recognition.onend = () => {
-      // En móviles, se detiene al final de cada frase, por lo que reiniciamos si aún se quiere escuchar
       if (isListening) {
         recognition.start();
       }
@@ -83,7 +114,6 @@ function VoiceRecognition() {
     recognition.start();
     recognitionRef.current = recognition;
 
-    // Solicitar acceso al micrófono con mejoras para ambientes ruidosos
     navigator.mediaDevices.getUserMedia({
       audio: {
         echoCancellation: true,
@@ -94,23 +124,45 @@ function VoiceRecognition() {
       .then((stream) => {
         const microphoneStream = audioContext.createMediaStreamSource(stream);
         microphoneStream.connect(gainNode);
-        // No conectamos a audioContext.destination para evitar retroalimentación.
       })
       .catch((err) => {
         console.error("Error al acceder al micrófono:", err);
       });
   };
 
-  const stopRecognition = () => {
+  const generateDiagram = async (transcriptText) => {
+    try {
+      const res = await fetch("http://localhost:5000/api/generate-diagram", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ transcript: transcriptText }),
+      });
+      const data = await res.json();
+      setDiagram(data.diagram);
+    } catch (error) {
+      console.error("Error generando diagrama:", error);
+      setDiagram("Error generando diagrama.");
+    }
+  };
+
+  const stopRecognition = async () => {
     setIsListening(false);
     if (recognitionRef.current) {
       recognitionRef.current.stop();
+    }
+    if (finalTranscript.trim().length > 0) {
+      await refineTranscript(finalTranscript);
+    //   await generateDiagram(finalTranscript);
     }
   };
 
   const clearTranscription = () => {
     setFinalTranscript("");
     setInterimTranscript("");
+    setRefinedTranscript("");
+    setDiagram("");
   };
 
   const handleVolumeChange = (e) => {
@@ -123,18 +175,10 @@ function VoiceRecognition() {
         <h1>Transcripción en Tiempo Real</h1>
       </header>
       <div className="controls">
-        <button
-          onClick={startRecognition}
-          disabled={isListening}
-          className="btn start"
-        >
+        <button onClick={startRecognition} disabled={isListening} className="btn start">
           {isListening ? "Escuchando..." : "Iniciar"}
         </button>
-        <button
-          onClick={stopRecognition}
-          disabled={!isListening}
-          className="btn stop"
-        >
+        <button onClick={stopRecognition} disabled={!isListening} className="btn stop">
           Detener
         </button>
         <button onClick={clearTranscription} className="btn clear">
@@ -156,9 +200,22 @@ function VoiceRecognition() {
       </div>
       <div className="transcript-box">
         <p>
-          {finalTranscript} <span className="interim">{interimTranscript}</span>
+          <strong>Transcripción cruda:</strong> {finalTranscript}{" "}
+          <span className="interim">{interimTranscript}</span>
         </p>
       </div>
+      {refinedTranscript && (
+        <div className="refined-transcript-box">
+          <h2>Transcripción Refinada</h2>
+          <ReactMarkdown>{refinedTranscript}</ReactMarkdown>
+        </div>
+      )}
+      {diagram && (
+        <div className="diagram-box">
+          <h2>Diagrama Generado</h2>
+          <MermaidDiagram chart={diagram} />
+        </div>
+      )}
     </div>
   );
 }
